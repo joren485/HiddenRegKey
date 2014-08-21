@@ -1,10 +1,19 @@
 from ctypes import *
 from ctypes.wintypes import *
+import sys
+
+if not windll.Shell32.IsUserAnAdmin():
+    print "[!] This script should be run as admin!"
+    print "[!] Exiting."
+    sys.exit()
 
 OBJ_CASE_INSENSITIVE = 0x00000040
 KEY_ALL_ACCESS = 0xF003F
 KEY_WOW64_64KEY = 0x0100
 REG_OPTION_NON_VOLATILE = 0x00000000L
+
+disposition_output = [None, "Opened existing key.", "Created new key."]
+
 
 def NT_SUCCESS(status):
 	if (status >= 0 and status <= 0x3FFFFFFF) or (status >= 0x40000000 and status <= 0x7FFFFFFF):
@@ -33,63 +42,52 @@ def InitializeObjectAttributes(p, n, a, r, s):
 	p.SecurityDescriptor = s
 	p.SecurityQualityOfService = None
 
-KeyNameBuffer = create_unicode_buffer("\\Registry\\Machine\\SOFTWARE\\")
-NewKeyNameBuffer = create_unicode_buffer("a")
-HiddenKeyNameBuffer = create_unicode_buffer(u"Can't touch me!".encode("UTF-16LE"))
 
-KeyName = UNICODE_STRING()
-ObjectAttributes = OBJECT_ATTRIBUTES()
 
-KeyHandle = HANDLE()
+
+##Opening target key
+TargetKeyNameBuffer = create_unicode_buffer("\\Registry\\Machine\\SOFTWARE\\Target Key")
+
+TargetKeyName = UNICODE_STRING()
+TargetObjectAttributes = OBJECT_ATTRIBUTES()
+
+TargetKeyHandle = HANDLE()
 Disposition = c_ulong()
 
-windll.ntdll.RtlInitUnicodeString(byref(KeyName), pointer(KeyNameBuffer))
+windll.ntdll.RtlInitUnicodeString(byref(TargetKeyName), pointer(TargetKeyNameBuffer))
 
-InitializeObjectAttributes(ObjectAttributes, pointer(KeyName), OBJ_CASE_INSENSITIVE, None, None)
+InitializeObjectAttributes(TargetObjectAttributes, pointer(TargetKeyName), OBJ_CASE_INSENSITIVE, None, None)
 
-status = windll.ntdll.NtCreateKey(byref(KeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(ObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
-
-if not NT_SUCCESS(status):
-    print "[!]Error: " + str(GetLastError())
-    print "[!]Status: " + str(status)
-
-print "[!]Disposition: " + str(Disposition.value)
-######
-Disposition = c_ulong()
-newKeyName = UNICODE_STRING()
-newObjectAttributes = OBJECT_ATTRIBUTES()
-SysKeyHandle = HANDLE()
-
-windll.ntdll.RtlInitUnicodeString(byref(newKeyName), pointer(NewKeyNameBuffer))
-
-InitializeObjectAttributes(newObjectAttributes, pointer(newKeyName), OBJ_CASE_INSENSITIVE, KeyHandle, None)
-
-status = windll.ntdll.NtCreateKey(byref(SysKeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(newObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
+status = windll.ntdll.NtCreateKey(byref(TargetKeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(TargetObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
 
 if not NT_SUCCESS(status):
-    print "[!]Error: " + str(GetLastError())
-    print "[!]Status: " + str(status)
+    print "[!] Error: " + str(GetLastError())
+    sys.exit()
 
-print "[!]Disposition: " + str(Disposition.value)
-######
+print "[+] " + disposition_output[Disposition.value]
+
+##Creatign hidden key
+hiddenkeyname = u"abc\0def"
+
 Disposition = c_ulong()
 HiddenKeyName = UNICODE_STRING()
 HiddenObjectAttributes = OBJECT_ATTRIBUTES()
 HiddenKeyHandle = HANDLE()
 
-HiddenKeyName.Buffer = wstring_at(create_unicode_buffer(u'abc\0def'), 7)
-HiddenKeyName.Length = 8
+HiddenKeyName.Buffer = wstring_at(create_unicode_buffer(hiddenkeyname), len(hiddenkeyname))
+HiddenKeyName.Length = len(hiddenkeyname) + 1
 
-InitializeObjectAttributes(HiddenObjectAttributes, pointer(HiddenKeyName), OBJ_CASE_INSENSITIVE, SysKeyHandle, None)
+InitializeObjectAttributes(HiddenObjectAttributes, pointer(HiddenKeyName), OBJ_CASE_INSENSITIVE, TargetKeyHandle, None)
 
 status = windll.ntdll.NtCreateKey(byref(HiddenKeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(HiddenObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
 
 if not NT_SUCCESS(status):
-    print "[!]Error: " + str(GetLastError())
-    print "[!]Status: " + str(status)
-print "[!]Disposition: " + str(Disposition.value)
+    print "[!] Error: " + str(GetLastError())
+    sys.exit()
+    
+print "[+] " + disposition_output[Disposition.value]
 
-print 
+raw_input("\n[+] Press enter to delete the hidden key? ")
 windll.ntdll.NtDeleteKey(HiddenKeyHandle)
-windll.ntdll.NtDeleteKey(SysKeyHandle)
+windll.ntdll.NtDeleteKey(TargetKeyHandle)
 
