@@ -12,7 +12,7 @@ KEY_ALL_ACCESS = 0xF003F
 KEY_WOW64_64KEY = 0x0100
 REG_OPTION_NON_VOLATILE = 0x00000000L
 
-disposition_output = [None, "Opened existing key.", "Created new key."]
+disposition_output = [None, "Opened key.", "Created key."]
 
 
 def NT_SUCCESS(status):
@@ -42,10 +42,8 @@ def InitializeObjectAttributes(p, n, a, r, s):
 	p.SecurityDescriptor = s
 	p.SecurityQualityOfService = None
 
-
-
-
 ##Opening target key
+print "[+]Creating/Opening target key"
 TargetKeyNameBuffer = create_unicode_buffer("\\Registry\\Machine\\SOFTWARE\\Target Key")
 
 TargetKeyName = UNICODE_STRING()
@@ -64,18 +62,19 @@ if not NT_SUCCESS(status):
     print "[!] Error: " + str(GetLastError())
     sys.exit()
 
-print "[+] " + disposition_output[Disposition.value]
+print "\t[+] " + disposition_output[Disposition.value]
 
 ##Creatign hidden key
-hiddenkeyname = u"abc\0def"
+print "[+]Creating hidden key"
+hiddenkeyname = create_unicode_buffer("Open me!\0")
 
 Disposition = c_ulong()
 HiddenKeyName = UNICODE_STRING()
 HiddenObjectAttributes = OBJECT_ATTRIBUTES()
 HiddenKeyHandle = HANDLE()
 
-HiddenKeyName.Buffer = wstring_at(create_unicode_buffer(hiddenkeyname), len(hiddenkeyname))
-HiddenKeyName.Length = len(hiddenkeyname) + 1
+HiddenKeyName.Buffer = wstring_at(hiddenkeyname, cdll.ntdll.wcslen(hiddenkeyname) + 1)
+HiddenKeyName.Length = cdll.ntdll.wcslen(hiddenkeyname) * sizeof(c_wchar) + sizeof(c_wchar)
 
 InitializeObjectAttributes(HiddenObjectAttributes, pointer(HiddenKeyName), OBJ_CASE_INSENSITIVE, TargetKeyHandle, None)
 
@@ -85,8 +84,9 @@ if not NT_SUCCESS(status):
     print "[!] Error: " + str(GetLastError())
     sys.exit()
     
-print "[+] " + disposition_output[Disposition.value]
+print "\t[+] " + disposition_output[Disposition.value]
 
+##Delete the target key and the hidden key
 raw_input("\n[+] Press enter to delete the hidden key? ")
 windll.ntdll.NtDeleteKey(HiddenKeyHandle)
 windll.ntdll.NtDeleteKey(TargetKeyHandle)
