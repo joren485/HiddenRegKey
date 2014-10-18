@@ -87,7 +87,7 @@ if not NT_SUCCESS(status):
 print "\t[+] " + disposition_output[Disposition.value]
 
 ##Delete the target key and the hidden key
-raw_input("\n[+] Press enter to delete the hidden key? ")
+raw_input("\n[+] Press enter to delete the hidden key.")
 windll.ntdll.NtDeleteKey(HiddenKeyHandle)
 windll.ntdll.NtDeleteKey(TargetKeyHandle)
 
