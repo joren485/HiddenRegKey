@@ -1,93 +1,155 @@
+import sys
+import logging
+
+from typing import Optional
+
 from ctypes import *
 from ctypes.wintypes import *
-import sys
 
-if not windll.Shell32.IsUserAnAdmin():
-    print "[!] This script should be run as admin!"
-    print "[!] Exiting."
-    sys.exit()
+logging.basicConfig(
+    format='(%(asctime)s)[%(levelname)s]\t%(message)s',
+    datefmt='%H:%M:%S',
+    level=logging.INFO
+)
 
-OBJ_CASE_INSENSITIVE = 0x00000040
+# As defined by Windows
+OBJ_CASE_INSENSITIVE = c_ulong(0x00000040)
 KEY_ALL_ACCESS = 0xF003F
-KEY_WOW64_64KEY = 0x0100
-REG_OPTION_NON_VOLATILE = 0x00000000L
+REG_OPTION_NON_VOLATILE = 0x00000000
 
-disposition_output = [None, "Opened key.", "Created key."]
+NT_SUCCESS_RANGE = (0, 0x80000000)
+
+# Constants used in
+TARGET_KEY = r'\Registry\Machine\SOFTWARE\Target Key'
+
+KEY_ACCESS = KEY_ALL_ACCESS
+
+NAME_HIDDEN_KEY = 'Open me!\0'
+
+logger = logging.getLogger('Create Hidden Registry Key')
 
 
-def NT_SUCCESS(status):
-	if (status >= 0 and status <= 0x3FFFFFFF) or (status >= 0x40000000 and status <= 0x7FFFFFFF):
-		return 1
-	else:
-		return 0
+class UnicodeString(Structure):
+    """
 
-class UNICODE_STRING(Structure):
-	_fields_ = [("Length", USHORT),
-		    ("MaximumLength", USHORT),
-		    ("Buffer", c_wchar_p)]
+    """
 
-class OBJECT_ATTRIBUTES(Structure):
-	_fields_ = [("Length", ULONG),
-		    ("RootDirectory", HANDLE),
-                    ("ObjectName", POINTER(UNICODE_STRING)),
-                    ("Attributes", ULONG),
-                    ("SecurityDescriptor", c_void_p),
-                    ("SecurityQualityOfService", c_void_p)]
+    _fields_ = [
+        ('Length', USHORT),
+        ('MaximumLength', USHORT),
+        ('Buffer', c_wchar_p)
+    ]
 
-def InitializeObjectAttributes(p, n, a, r, s):
-	p.Length = sizeof(OBJECT_ATTRIBUTES)
-	p.RootDirectory = r
-	p.Attributes = a
-	p.ObjectName = n
-	p.SecurityDescriptor = s
-	p.SecurityQualityOfService = None
 
-##Opening target key
-print "[+]Creating/Opening target key"
-TargetKeyNameBuffer = create_unicode_buffer("\\Registry\\Machine\\SOFTWARE\\Target Key")
+class ObjectAttributes(Structure):
+    """
 
-TargetKeyName = UNICODE_STRING()
-TargetObjectAttributes = OBJECT_ATTRIBUTES()
+    """
 
-TargetKeyHandle = HANDLE()
-Disposition = c_ulong()
+    _fields_ = [
+        ('Length', ULONG),
+        ('RootDirectory', HANDLE),
+        ('ObjectName', POINTER(UnicodeString)),
+        ('Attributes', ULONG),
+        ('SecurityDescriptor', c_void_p),
+        ('SecurityQualityOfService', c_void_p)
+    ]
 
-windll.ntdll.RtlInitUnicodeString(byref(TargetKeyName), pointer(TargetKeyNameBuffer))
+    def __init__(
+            self,
+            root_directory: Optional[HANDLE],
+            object_name: POINTER(UnicodeString),
+            attributes: ULONG,
+    ):
+        super().__init__(
+            Length=sizeof(ObjectAttributes),
+            RootDirectory=root_directory,
+            ObjectName=object_name,
+            Attributes=attributes,
+            SecurityDescriptor=None,
+            SecurityQualityOfService=None
+        )
 
-InitializeObjectAttributes(TargetObjectAttributes, pointer(TargetKeyName), OBJ_CASE_INSENSITIVE, None, None)
 
-status = windll.ntdll.NtCreateKey(byref(TargetKeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(TargetObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
+def call_ntcreatekey(
+        name: UnicodeString,
+        root_directory: Optional[HANDLE] = None
+) -> Optional[HANDLE]:
+    """
 
-if not NT_SUCCESS(status):
-    print "[!] Error: " + str(GetLastError())
-    sys.exit()
+    :param name:
+    :param root_directory:
+    :return: False if an error occured, the handle otherwise.
+    """
 
-print "\t[+] " + disposition_output[Disposition.value]
+    key_handle = HANDLE()
 
-##Creatign hidden key
-print "[+]Creating hidden key"
-hiddenkeyname = create_unicode_buffer("Open me!\0")
+    object_attributes = ObjectAttributes(
+        root_directory=root_directory,
+        object_name=pointer(name),
+        attributes=OBJ_CASE_INSENSITIVE,
+    )
 
-Disposition = c_ulong()
-HiddenKeyName = UNICODE_STRING()
-HiddenObjectAttributes = OBJECT_ATTRIBUTES()
-HiddenKeyHandle = HANDLE()
+    create_key_nt_status = windll.ntdll.NtCreateKey(
+        byref(key_handle),
+        KEY_ACCESS,
+        pointer(object_attributes),
+        0,
+        None,
+        REG_OPTION_NON_VOLATILE,
+        None,
+    )
 
-HiddenKeyName.Buffer = wstring_at(hiddenkeyname, cdll.ntdll.wcslen(hiddenkeyname) + 1)
-HiddenKeyName.Length = cdll.ntdll.wcslen(hiddenkeyname) * sizeof(c_wchar) + sizeof(c_wchar)
+    if create_key_nt_status not in NT_SUCCESS_RANGE:
+        return None
 
-InitializeObjectAttributes(HiddenObjectAttributes, pointer(HiddenKeyName), OBJ_CASE_INSENSITIVE, TargetKeyHandle, None)
+    return key_handle
 
-status = windll.ntdll.NtCreateKey(byref(HiddenKeyHandle), KEY_ALL_ACCESS | KEY_WOW64_64KEY, pointer(HiddenObjectAttributes), 0, None, REG_OPTION_NON_VOLATILE, byref(Disposition))
 
-if not NT_SUCCESS(status):
-    print "[!] Error: " + str(GetLastError())
-    sys.exit()
-    
-print "\t[+] " + disposition_output[Disposition.value]
+if __name__ == '__main__':
 
-##Delete the target key and the hidden key
-raw_input("\n[+] Press enter to delete the hidden key.")
-windll.ntdll.NtDeleteKey(HiddenKeyHandle)
-windll.ntdll.NtDeleteKey(TargetKeyHandle)
+    if not windll.Shell32.IsUserAnAdmin():
+        print('This script should be run as admin!')
+        print('Exiting.')
+        sys.exit()
 
+    logger.info('Creating/Opening target key')
+
+    target_key_name_buffer = create_unicode_buffer(TARGET_KEY)
+    target_key_name = UnicodeString()
+    windll.ntdll.RtlInitUnicodeString(
+        byref(target_key_name),
+        pointer(target_key_name_buffer)
+    )
+
+    target_key_handle = call_ntcreatekey(target_key_name)
+
+    if not target_key_handle:
+        logger.warning('Error during creating/opening target key')
+
+    logger.info('Creating hidden key')
+    hidden_key_name_buffer = create_unicode_buffer(NAME_HIDDEN_KEY)
+
+    hidden_key_name = UnicodeString()
+    hidden_key_name.Buffer = wstring_at(
+        hidden_key_name_buffer,
+        cdll.ntdll.wcslen(hidden_key_name_buffer) + 1
+    )
+
+    hidden_key_name.Length = \
+        (cdll.ntdll.wcslen(hidden_key_name_buffer) + 1) * sizeof(c_wchar)
+
+    hidden_key_handle = call_ntcreatekey(
+        hidden_key_name,
+        target_key_handle
+    )
+
+    if not hidden_key_handle:
+        logger.warning('Error during creating hidden key')
+        sys.exit()
+
+    logger.info('Successfully created the hidden key')
+
+    input('\n[+] Press enter to delete the hidden key.')
+    windll.ntdll.NtDeleteKey(hidden_key_handle)
+    windll.ntdll.NtDeleteKey(target_key_handle)
