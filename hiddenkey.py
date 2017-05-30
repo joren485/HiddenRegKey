@@ -30,9 +30,6 @@ logger = logging.getLogger('Create Hidden Registry Key')
 
 
 class UnicodeString(Structure):
-    """
-
-    """
 
     _fields_ = [
         ('Length', USHORT),
@@ -42,9 +39,6 @@ class UnicodeString(Structure):
 
 
 class ObjectAttributes(Structure):
-    """
-
-    """
 
     _fields_ = [
         ('Length', ULONG),
@@ -71,15 +65,12 @@ class ObjectAttributes(Structure):
         )
 
 
-def call_ntcreatekey(
+def call_zwcreatekey(
         name: UnicodeString,
         root_directory: Optional[HANDLE] = None
 ) -> Optional[HANDLE]:
     """
-
-    :param name:
-    :param root_directory:
-    :return: False if an error occured, the handle otherwise.
+    :return: False if an error occurred, the handle otherwise.
     """
 
     key_handle = HANDLE()
@@ -90,7 +81,7 @@ def call_ntcreatekey(
         attributes=OBJ_CASE_INSENSITIVE,
     )
 
-    create_key_nt_status = windll.ntdll.NtCreateKey(
+    create_key_nt_status = windll.ntdll.ZwCreateKey(
         byref(key_handle),
         KEY_ACCESS,
         pointer(object_attributes),
@@ -122,9 +113,9 @@ if __name__ == '__main__':
         pointer(target_key_name_buffer)
     )
 
-    target_key_handle = call_ntcreatekey(target_key_name)
+    target_key_handle = call_zwcreatekey(target_key_name)
 
-    if not target_key_handle:
+    if target_key_handle is None:
         logger.warning('Error during creating/opening target key')
 
     logger.info('Creating hidden key')
@@ -139,12 +130,12 @@ if __name__ == '__main__':
     hidden_key_name.Length = \
         (cdll.ntdll.wcslen(hidden_key_name_buffer) + 1) * sizeof(c_wchar)
 
-    hidden_key_handle = call_ntcreatekey(
+    hidden_key_handle = call_zwcreatekey(
         hidden_key_name,
         target_key_handle
     )
 
-    if not hidden_key_handle:
+    if hidden_key_handle is None:
         logger.warning('Error during creating hidden key')
         sys.exit()
 
