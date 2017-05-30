@@ -22,8 +22,6 @@ NT_SUCCESS_RANGE = (0, 0x80000000)
 # Constants used in
 TARGET_KEY = r'\Registry\Machine\SOFTWARE\Target Key'
 
-KEY_ACCESS = KEY_ALL_ACCESS
-
 NAME_HIDDEN_KEY = 'Open me!\0'
 
 logger = logging.getLogger('Create Hidden Registry Key')
@@ -53,13 +51,12 @@ class ObjectAttributes(Structure):
             self,
             root_directory: Optional[HANDLE],
             object_name: POINTER(UnicodeString),
-            attributes: ULONG,
     ):
         super().__init__(
             Length=sizeof(ObjectAttributes),
             RootDirectory=root_directory,
             ObjectName=object_name,
-            Attributes=attributes,
+            Attributes=OBJ_CASE_INSENSITIVE,
             SecurityDescriptor=None,
             SecurityQualityOfService=None
         )
@@ -78,12 +75,11 @@ def call_zwcreatekey(
     object_attributes = ObjectAttributes(
         root_directory=root_directory,
         object_name=pointer(name),
-        attributes=OBJ_CASE_INSENSITIVE,
     )
 
     create_key_nt_status = windll.ntdll.ZwCreateKey(
         byref(key_handle),
-        KEY_ACCESS,
+        KEY_ALL_ACCESS,
         pointer(object_attributes),
         0,
         None,
@@ -100,12 +96,10 @@ def call_zwcreatekey(
 if __name__ == '__main__':
 
     if not windll.Shell32.IsUserAnAdmin():
-        print('This script should be run as admin!')
-        print('Exiting.')
+        logger.warning('This script should be run as admin! Exiting.')
         sys.exit()
 
     logger.info('Creating/Opening target key')
-
     target_key_name_buffer = create_unicode_buffer(TARGET_KEY)
     target_key_name = UnicodeString()
     windll.ntdll.RtlInitUnicodeString(
@@ -116,7 +110,8 @@ if __name__ == '__main__':
     target_key_handle = call_zwcreatekey(target_key_name)
 
     if target_key_handle is None:
-        logger.warning('Error during creating/opening target key')
+        logger.warning('Error during creating/opening target key.')
+        sys.exit()
 
     logger.info('Creating hidden key')
     hidden_key_name_buffer = create_unicode_buffer(NAME_HIDDEN_KEY)
@@ -136,10 +131,10 @@ if __name__ == '__main__':
     )
 
     if hidden_key_handle is None:
-        logger.warning('Error during creating hidden key')
+        logger.warning('Error during creating hidden key.')
         sys.exit()
 
-    logger.info('Successfully created the hidden key')
+    logger.info('Successfully created the hidden key.')
 
     input('\n[+] Press enter to delete the hidden key.')
     windll.ntdll.NtDeleteKey(hidden_key_handle)
